@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <string.h>
+// #include <cstring>
 #include <vector>
 #include "pugixml.hpp"
 #include "mex.h"
@@ -16,10 +17,28 @@ bool hasChildNodes(pugi::xml_node& node)
 std::vector<pugi::xml_node> getChildNodes(pugi::xml_node& node)
 {
     std::vector<pugi::xml_node> childNodes;
+    int pos;
     node = node.first_child();
+    std::string tempName;
 
     while (node != NULL)
     {
+        tempName = node.name();
+        while ((pos = tempName.find(":")) != std::string::npos)
+        {
+            tempName.replace(pos, 1, "_colon_");
+        }
+        while ((pos = tempName.find(".")) != std::string::npos)
+        {
+            tempName.replace(pos, 1, "_dot_");
+        }
+        while ((pos = tempName.find("-")) != std::string::npos)
+        {
+            tempName.replace(pos, 1, "_dash_");
+        }
+        node.set_name(tempName.c_str());
+//         mexPrintf("%s\n", node.name());
+        
         childNodes.push_back(node);
         node = node.next_sibling();
     }
@@ -47,11 +66,11 @@ mxArray *parseAttributes(pugi::xml_node& node)
     mxArray *attributes = NULL;
     pugi::xml_attribute attr = node.first_attribute();
     int pos;
-
+    
     if (attr != NULL)
     {
         std::string tempName = attr.name();
-
+        
         while ((pos = tempName.find(":")) != std::string::npos)
         {
             tempName.replace(pos, 1, "_colon_");
@@ -64,9 +83,8 @@ mxArray *parseAttributes(pugi::xml_node& node)
         {
             tempName.replace(pos, 1, "_dash_");
         }
-
+        
         const char *attributeName[1] = {tempName.c_str()};
-
         mxArray *temp = mxCreateStructMatrix(1, 1, 1, attributeName);
         mxArray *attrValue = mxCreateString(attr.value());
         mxSetField(temp, 0, attributeName[0], attrValue);
@@ -103,7 +121,7 @@ mxArray *parseAttributes(pugi::xml_node& node)
 mxArray* parseChildNodes(pugi::xml_node& node)
 {
     mxArray *children = NULL;
-
+    
     if (hasChildNodes(node))
     {
         mxArray *attributes = parseAttributes(node);
@@ -120,21 +138,27 @@ mxArray* parseChildNodes(pugi::xml_node& node)
         {
             allChildNodeNames.push_back(childNodes.at(i).name());
         }
-
-        distinctNames = getDistinctNodeNames(allChildNodeNames);
         
-        /* Patch for bypassing the variable-length arrays problems of modern C++ compilers */
-        std::vector<const char*> distinctChildNodeNames;
-        std::transform(distinctNames.begin(), distinctNames.end(), std::back_inserter(distinctChildNodeNames), [](const std::string & str) {
-            // initialize empty char array
-            char *output = new char[str.size()+1];
-            std::strcpy(output, str.c_str());
-            return output;
-        });        
+        distinctNames = getDistinctNodeNames(allChildNodeNames);
+        const char *distinctChildNodeNames[distinctNames.size()] = {};
 
+        for (int i = 0; i < distinctNames.size(); i++)
+        {
+            distinctChildNodeNames[i] = distinctNames.at(i).c_str();
+        }
+        
+//         /* Patch for bypassing the variable-length arrays problems of modern C++ compilers */
+//         std::vector<const char*> distinctChildNodeNames;
+//         std::transform(distinctNames.begin(), distinctNames.end(), std::back_inserter(distinctChildNodeNames), [](const std::string& str) {
+//             // initialize empty char array
+//             char *output = new char[str.size()+1];
+//             std::strcpy(output, str.c_str());
+//             return output;
+//         });
+        
         std::vector<std::string> processedNames;
 
-        children = mxCreateStructMatrix(1, 1, distinctNames.size(), &distinctChildNodeNames[0]);
+        children = mxCreateStructMatrix(1, 1, distinctNames.size(), distinctChildNodeNames);
 
         for (int idx = 0; idx < childNodes.size(); idx++)
         {
@@ -147,7 +171,7 @@ mxArray* parseChildNodes(pugi::xml_node& node)
             namey[0] = temp.c_str();
             mxArray *glhf = mxGetField(children, 0, namey[0]);
             int indexOfMatchingItem = mxGetFieldNumber(children,  namey[0]);
-
+            
             if (!(strcmp(type.c_str(), "pcdata") == 0) && !(strcmp(type.c_str(), "comment") == 0) && !(strcmp(type.c_str(), "cdata") == 0))
             {
                 //XML allows the same elements to be defined multiple times, put each in a different cell
